@@ -4,7 +4,7 @@ using PerformanceTestTools
 using JLD2
 
 @testset "multithreaded equivalence" begin
-    N_multithread = 2
+    N_multithread = 8
     PerformanceTestTools.@include_foreach(
         "tests_using_threads.jl",
         [["JULIA_NUM_THREADS" => "1"]],

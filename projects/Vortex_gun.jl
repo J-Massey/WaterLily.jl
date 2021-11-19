@@ -1,285 +1,34 @@
 ### A Pluto.jl notebook ###
-# v0.17.1
+# v0.16.1
 
 using Markdown
 using InteractiveUtils
 
-# This Pluto notebook uses @bind for interactivity. When running this notebook outside of Pluto, the following 'mock version' of @bind gives bound variables a default value (instead of an error).
-macro bind(def, element)
-    quote
-        local iv = try Base.loaded_modules[Base.PkgId(Base.UUID("6e696c72-6542-2067-7265-42206c756150"), "AbstractPlutoDingetjes")].Bonds.initial_value catch; b -> missing; end
-        local el = $(esc(element))
-        global $(esc(def)) = Core.applicable(Base.get, el) ? Base.get(el) : iv(el)
-        el
-    end
-end
-
-# ╔═╡ c028100e-f47b-11eb-2547-df779889e265
+# ╔═╡ 8e7c4c7e-212a-11ec-0da9-e37fb98edfac
 using WaterLily, StaticArrays, PlutoUI, Interpolations, Plots, Images
 
-# ╔═╡ b0c8df66-1e63-456e-be32-d469e6972e00
+# ╔═╡ dbd62314-b182-41dc-ae2c-3b0a6e5c7d6e
 md"""
 ## Simulation of a swimming dogfish shark
 
-**Gabriel D Weymouth** [![Twitter URL](https://img.shields.io/twitter/url/https/twitter.com/gabrielweymouth.svg?style=social&label=)](https://twitter.com/gabrielweymouth) | 11 Aug 2021
+**Jonathan Massey** [![Twitter URL](https://img.shields.io/twitter/url/https/twitter.com/jonahmassey5.svg?style=social&label=)](https://twitter.com/jonahmassey5) | 11 Aug 2021
 
 ---
 
-This post will demonstrate how to set up and simulate a model of a swimming dogfish shark using [Julia](https://julialang.org/) and [WaterLily.jl](https://www.youtube.com/watch?v=YsPkfZqbNSQ). The post is actually a [Pluto notebook](https://www.youtube.com/watch?v=IAF8DjrQSSk) and can be run interactively by clicking on the top right icon.
+This post will attempt to set up a body that fires vortices of varying strength and amplitude in the streamwise direction [Julia](https://julialang.org/) and [WaterLily.jl](https://www.youtube.com/watch?v=YsPkfZqbNSQ). The post is a [Pluto notebook](https://www.youtube.com/watch?v=IAF8DjrQSSk) and can be run interactively by clicking on the top right icon.
 
-We'll use a simple model of the shark based on Lighthill's pioneering [paper on the swimming of slender fish](https://doi.org/10.1017/S0022112060001110). It focuses on the "backbone" of the fish; idealizing the shape as a thickness distribution on either side of the center, and the motion as a lateral ("side-to-side") travelling wave. Amazingly, this simple approach provides insight across a huge range of swimming animals as illustrated in the image below. [Image credit: Gazzola et al, _Nature_ 2014](https://www.nature.com/articles/nphys3078)
+The aim is to alter the body linearly velocity in a way that produces a vortex. The equation for a vortex is: 
+
+$\omega_z = \frac{\partial v}{\partial x} - \frac{\partial u}{\partial y}.$
+
+We need to define a body velocity:
+
+$f(u,v|y)$
+
 """
 
-# ╔═╡ e9384124-9708-44eb-b5e7-75abc5177a69
-begin
-	url = "https://media.springernature.com/full/springer-static/image/art%3A10.1038%2Fnphys3078/MediaObjects/41567_2014_Article_BFnphys3078_Fig1_HTML.jpg"
-	filename = download(url)
-	lighthill = load(filename)
-end
+# ╔═╡ a46dcf84-73f4-40d9-91e9-fc6b9b199a47
 
-
-# ╔═╡ c8293b7b-0585-45b3-8763-8cfa4671b155
-md"""
-
-### Modeling the shark's thickness and motion
-
-We'll define the thickness and motion distributions using `interpolate` to fit splines through a few points.
-"""
-
-# ╔═╡ a48ac92c-5cb0-4e51-a08f-b34bc8b06d04
-fit = y-> scale(interpolate(y, BSpline(Quadratic(Line(OnGrid())))), range(0,1,length=length(y)))
-
-# ╔═╡ ad96bcbe-4482-4486-b817-e788604d1d96
-md"""
-Here is an image of the dogfish shark we will model. [Image credit: Shark Trust](file:///C:/Users/admin/Downloads/Spiny%20Dogfish%20ST%20Factsheet.PDF)
-"""
-
-# ╔═╡ 47eb9e3f-5617-417a-8924-5a38d90390e8
-# Fish shape
-begin
-	url2 = "https://pterosaurheresies.files.wordpress.com/2020/01/squalus-acanthias-invivo588.jpg"
-	filename2 = download(url2)
-	dogfish = load(filename2)
-end
-
-# ╔═╡ 8752bf4d-50e6-42ea-8d43-c41699769f77
-md"""
-The bottom view shows the outline we're interested in, and adding a few points along the length defines the thickness distribution function `thk`.
-"""
-
-# ╔═╡ 71c9bc8f-921d-4df4-acc2-7321ce6648e0
-begin
-	plot(dogfish)
-	nose,len = (30,224),500
-	width = [0.02,0.07,0.06,0.048,0.03,0.019,0.01]
-	scatter!(nose[1].+len.*range(0,1,length=length(width)), 
-		nose[2].-len.*width,color=:blue,legend=false)
-	thk = fit(width)
-	x = 0:0.01:1
-	plot!(nose[1].+len.*x, [nose[2].-len.*thk.(x),nose[2].+len.*thk.(x)],color=:blue)
-end
-
-# ╔═╡ d830e69e-f085-495e-be2c-8ea44582fa20
-md"""
-Looking at [videos of swimming dogfish](https://youtu.be/nMa6lD2CQVI?t=200), we can see a couple general features
- - The motion of the front half of the body has a small amplitude (around 20% of the tail). This sets the amplitude evelope for the traveling wave.
-"""
-
-# ╔═╡ c2b7a082-c05d-41bb-af4c-eb23f6a331bf
-begin
-	envelope = [0.2,0.21,0.23,0.4,0.88,1.0]
-	amp = fit(envelope)
-end
-
-# ╔═╡ ea51f472-7ffc-4062-a45c-1410d26b1c3e
-md"""
-- The wavelength of the traveling wave is a bit longer than the body length. 
-
-The slider below controls the wavelength of the traveling wave λ, which you can adjust to see the impact it has on the backbone over the motion cycle.
-"""
-
-# ╔═╡ 454f7849-2d9b-4250-94bb-9aed4c2f0d54
-md"λ: $@bind λ Slider(0.5:0.1:2, show_value=true, default = 1.1)"
-
-# ╔═╡ 67f29fd6-11ed-415f-abc0-2ed3c84fe60f
-begin
-	scatter(0:0.2:1, envelope)
-	colors = palette(:cyclic_wrwbw_40_90_c42_n256)
-	for t in 1/12:1/12:1
-		plot!(x,amp.(x).*sin.(2π/λ*x.-2π*t),color=colors[floor(Int,t*256)])
-	end
-	plot!(ylim=(-1.4,1.4),legend=false)
-end
-
-# ╔═╡ db1ed38c-a1aa-4173-bb43-d81afedbfab9
-md"""
-
-### Setting up the simulation
-
-Now the thickness and motion are defined, but how will we apply these to a fluid simulation? `WaterLily`uses an [immersed boundary method](https://eprints.soton.ac.uk/369635/) and [automatic differentiation](https://en.wikipedia.org/wiki/Automatic_differentiation) to embed a body into the flow. The upshot is that we don't need to do any meshing; all we need is a signed distance function (SDF) to the surface.
-
-Let's start by defining the SDF to the "backbone", which is a line segment from $x=0\ldots 1$. [See this great video from Inigo Quilez for a derivation of this sdf.](https://www.youtube.com/watch?v=PMltMdi1Wzg) The plot below shows the sdf and the zero contour, which is ... just a line segment. 
-
-Simple adjustments to the SDF give us more control of the shape and position. By shifting the y offset as `y = y-shift`, we can move the body laterally. And by subtracting a thickness from the distance as `sdf = sdf-thickness`, we can give the line some width. This is all we need to model the shark.
-"""
-
-# ╔═╡ bfc73784-8c27-4cdb-a8e4-fbcbf9ddb3c2
-md"shift: $@bind shift Slider(-1:0.5:2, show_value=true, default=0.5)"
-
-# ╔═╡ 76dc572f-3cd2-4f1a-9296-2065c877a6ef
-md"thickness: $@bind T Slider(0.001:0.25:2, show_value=true)"
-
-# ╔═╡ 839db88c-a477-4718-88bb-796ab0cd6591
-begin
-	function segment_sdf(x,y) 
-		s = clamp(x,0,1)         # distance along the segment
-		y = y-shift              # shift laterally
-		sdf = √sum(abs2,(x-s,y)) # line segment SDF
-		return sdf-T*thk(s)      # subtract thickness
-	end
-	grid = -1:0.05:2
-	contourf(grid,grid,segment_sdf,clim=(-1,2),linewidth=0)
-	contour!(grid,grid,segment_sdf,levels=[0],color=:black) # zero contour
-end
-
-# ╔═╡ f33b9315-b2d1-4fab-91c9-ed3b63fb4d41
-md"""
-With the basic SDF tested out, we are ready to set up the WaterLily simulation using the function `fish` defined below:
- - The functions `thk` is passed in to create the `sdf` and the function `amp` is passed in to create the traveling wave `map`.
- - The only numerical parameter passed into `fish` is the length of the fish `L` measured in computational cells. This sets the resolution of the simulation and the size of the fluid arrays.
- - The other parameters are the tail amplitude `A` as a fraction of the length, the [Stouhal number](https://en.wikipedia.org/wiki/Strouhal_number) which sets the motion frequency `ω`, and the [Reynolds number](https://en.wikipedia.org/wiki/Reynolds_number) which sets the fluid viscosity `ν`.
-"""
-
-# ╔═╡ 11702be3-d125-4ea4-b7e9-74d34943a164
-begin
-	function fish(thk,amp,k=5.3;L=2^6,A=0.1,St=0.3,Re=1e4)
-		# fraction along fish length
-		s(x) = clamp(x[1]/L,0,1)
-		
-		# fish geometry: thickened line SDF
-		sdf(x,t) = √sum(abs2,x-L*SVector(s(x),0.))-L*thk(s(x))
-
-		# fish motion: travelling wave
-		U=1
-		ω = 2π*St*U/(2A*L)
-		function map(x,t)
-			xc = x.-2L # shift origin
-			return xc-SVector(0.,A*L*amp(s(xc))*sin(k*s(xc)-ω*t))
-		end
-		
-		# make the fish simulation
-		return Simulation((6L+2,4L+2),[U,0.],L;
-							ν=U*L/Re,body=AutoBody(sdf,map))
-	end
-	
-	# Create the swimming shark
-	L,A,St = 2^5,0.1,0.3
-	swimmer = fish(thk,amp;L,A,St);
-	
-	# Save a time span for one swimming cycle
-	period = 2A/St
-	cycle = range(0,23/24*period,length=24)
-end
-
-# ╔═╡ 0c504e4f-be2c-4612-9656-bc7922c8f737
-
-
-# ╔═╡ d844c02d-41c8-43a8-95dd-742ea6c24f86
-md"""
-We can test our geometry by plotting the immersed boundary function `μ₀`; which equals 1 in the fluid and 0 in the body. 
-"""
-
-# ╔═╡ e618b2d9-abe8-4e97-aab2-e87c6278378f
-# @gif for t ∈ cycle
-# 	measure!(swimmer,t*swimmer.L/swimmer.U);
-# 	contour(swimmer.flow.μ₀[:,:,1]',
-# 		aspect_ratio=:equal,legend=false,border=:none)
-# end
-
-# ╔═╡ 7329a0ba-c57c-4d77-99da-2f8f66d5a94e
-md"""
-
-### Running visualizing and measuring the simulation
-
-That animation of the motion looks great, so we are ready to run the flow simulator! 
-
-The `sim_step!(sim,t,remeasure=true)` function runs the simulator up to time `t`, remeasuring the body position every time step. (`remeasure=false` by default since it takes a little extra computational time and isn't needed for statics geometries.)
-"""
-
-# ╔═╡ 845cbd96-c01b-49f7-94df-15836a68ebba
-# run the simulation a few cycles (this takes few seconds)
-begin 
-	sim_step!(swimmer,3,remeasure=true)
-	sim_time(swimmer)
-end
-
-# ╔═╡ d5c82801-8387-4ef0-9f34-3279a54603c5
-md"""
-The simulation has now run forward in time, but there are no visualizations or measurements by default. 
-
-To see what is going on, lets make a gif of the vorticity `ω=curl(u)` to visualize the vortices in the wake of the shark. This requires simulating a cycle of motion, and computing the `curl` at all the points `@inside` the simulation. 
-"""
-
-# ╔═╡ a5c9b186-332f-4812-bb07-0bbe288f5091
-begin
-	# plot the vorcity ω=curl(u) scaled by the body length L and flow speed U
-	function plot_vorticity(sim)
-		@inside sim.flow.σ[I] = WaterLily.curl(3,I,sim.flow.u)*sim.L/sim.U
-		contourf(sim.flow.σ', 
-			color=palette(:BuGn), clims=(-10,10),linewidth=0,
-			aspect_ratio=:equal,legend=false,border=:none)
-	end
-
-	# make a gif over a swimming cycle
-	@gif for t ∈ sim_time(swimmer).+cycle
-		sim_step!(swimmer,t,remeasure=true)
-		plot_vorticity(swimmer)
-	end
-end
-
-# ╔═╡ 85c555bb-f584-4064-9da7-f7f1e4fd5320
-md"""
-This is pretty (CFD does stand for _Colorful Fluid Dynamics_ after all), but also tells us something important about the flow. Notice that there are no eddies coming off the body anywhere other than the tail! This is a sign of efficiency since energy is only used to create those trailing vortices.
-
-We can dig in and get some quantitative measurements from the simulation as well. The function `∮nds` takes a integral over the body surface. By passing in the pressure `p`, we can measure the thrust force and side force generated by the shark!
-"""
-
-# ╔═╡ c4c3fa5c-79bc-4d55-827f-c952b129ab5f
-begin
-	function get_force(sim,t)
-		sim_step!(sim,t,remeasure=true)
-		return WaterLily.∮nds(sim.flow.p,sim.body,t*sim.L/sim.U)./(0.5*sim.L*sim.U^2)
-	end
-	forces = [get_force(swimmer,t) for t ∈ sim_time(swimmer).+cycle]
-	"got forces"
-end
-
-# ╔═╡ 9fc14582-108f-4434-83da-f7b32b676bd3
-scatter(cycle./period,[first.(forces),last.(forces)], 
-	labels=permutedims(["thrust","side"]), 
-	xlabel="scaled time", ylabel="scaled force")
-
-# ╔═╡ 9c67282b-e26a-42bf-836e-fc464b8ca63d
-md"""
-We can learn a lot from this simple plot. For example, the side-to-side force has the same frequency as the swimming motion itself while the thrust force has double the frequency, with a peak every time the tail passes through the centerline. 
-
-### Next steps
-
-This simple model is a great start and it opens up a ton of avenues for improving the shark simulation and suggesting research questions:
- - The instantaneous net forces should be zero in a free swimming body! We could add reaction motions to our model to achieve this. Would the model shark swim in a straight line if we did this, or is a control-loop needed?
- - Real sharks are 3D (gasp!). While we could easily extend this approach using 2D splines, it will take much longer to simulate. Is there a way use GPUs to accelerate the simulations without completely changing the solver?
- - If we were going to make a bio-inspired robot of this shark, we will have constraints on the shape and motion and powering available. Can we use this framework to help optimize our robotic within it's contraints?
-
-Below you can find links to all the packages used in this notebook. Happy Simulating!
-
-1. [Interpolations.jl](https://juliamath.github.io/Interpolations.jl/stable/)
-1. [JuliaDiff](https://juliadiff.org/)
-1. [JuliaImages](https://juliaimages.org/stable/)
-1. [Plots.jl](http://docs.juliaplots.org/latest/)
-1. [Pluto.jl](https://github.com/fonsp/Pluto.jl) and [PlutoUI.jl](https://github.com/fonsp/PlutoUI.jl)
-1. [StaticArrays.jl](https://github.com/JuliaArrays/StaticArrays.jl)
-1. [WaterLily.jl](https://github.com/weymouth/WaterLily.jl)
-"""
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
@@ -293,10 +42,10 @@ WaterLily = "ed894a53-35f9-47f1-b17f-85db9237eebd"
 
 [compat]
 Images = "~0.24.1"
-Interpolations = "~0.13.3"
-Plots = "~1.20.0"
-PlutoUI = "~0.7.9"
-StaticArrays = "~1.2.11"
+Interpolations = "~0.13.4"
+Plots = "~1.22.3"
+PlutoUI = "~0.7.12"
+StaticArrays = "~1.2.12"
 WaterLily = "~0.2.3"
 """
 
@@ -325,10 +74,10 @@ version = "3.3.1"
 uuid = "0dad84c5-d112-42e6-8d28-ef12dabb789f"
 
 [[ArrayInterface]]
-deps = ["IfElse", "LinearAlgebra", "Requires", "SparseArrays", "Static"]
-git-tree-sha1 = "2e004e61f76874d153979effc832ae53b56c20ee"
+deps = ["Compat", "IfElse", "LinearAlgebra", "Requires", "SparseArrays", "Static"]
+git-tree-sha1 = "b8d49c34c3da35f220e7295659cd0bab8e739fed"
 uuid = "4fba245c-0d91-5ea0-9b3e-6abc04ee57a9"
-version = "3.1.22"
+version = "3.1.33"
 
 [[Artifacts]]
 uuid = "56f22d72-fd6d-98f1-02f0-08ddc0907c33"
@@ -350,9 +99,9 @@ uuid = "2a0f44e3-6c83-55bd-87e4-b1978d98bd5f"
 
 [[Bzip2_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg"]
-git-tree-sha1 = "c3598e525718abcc440f69cc6d5f60dda0a1b61e"
+git-tree-sha1 = "19a35467a82e236ff51bc17a3a44b69ef35185a2"
 uuid = "6e34b625-4abd-537c-b88f-471c36dfa7a0"
-version = "1.0.6+5"
+version = "1.0.8+0"
 
 [[CEnum]]
 git-tree-sha1 = "215a9aa4a1f23fbd05b92769fdd62559488d70e9"
@@ -361,9 +110,9 @@ version = "0.4.1"
 
 [[Cairo_jll]]
 deps = ["Artifacts", "Bzip2_jll", "Fontconfig_jll", "FreeType2_jll", "Glib_jll", "JLLWrappers", "LZO_jll", "Libdl", "Pixman_jll", "Pkg", "Xorg_libXext_jll", "Xorg_libXrender_jll", "Zlib_jll", "libpng_jll"]
-git-tree-sha1 = "e2f47f6d8337369411569fd45ae5753ca10394c6"
+git-tree-sha1 = "f2202b55d816427cd385a9a4f3ffb226bee80f99"
 uuid = "83423d85-b0ee-5818-9007-b63ccbeb887a"
-version = "1.16.0+6"
+version = "1.16.1+0"
 
 [[CatIndices]]
 deps = ["CustomUnitRanges", "OffsetArrays"]
@@ -373,15 +122,15 @@ version = "0.2.2"
 
 [[ChainRulesCore]]
 deps = ["Compat", "LinearAlgebra", "SparseArrays"]
-git-tree-sha1 = "f53ca8d41e4753c41cdafa6ec5f7ce914b34be54"
+git-tree-sha1 = "e8a30e8019a512e4b6c56ccebc065026624660e8"
 uuid = "d360d2e6-b24c-11e9-a2a3-2a2ae2dbcce4"
-version = "0.10.13"
+version = "1.7.0"
 
 [[ColorSchemes]]
-deps = ["ColorTypes", "Colors", "FixedPointNumbers", "Random", "StaticArrays"]
-git-tree-sha1 = "ed268efe58512df8c7e224d2e170afd76dd6a417"
+deps = ["ColorTypes", "Colors", "FixedPointNumbers", "Random"]
+git-tree-sha1 = "a851fec56cb73cfdf43762999ec72eff5b86882a"
 uuid = "35d6a980-a343-548e-a6ea-1d62b119f2f4"
-version = "3.13.0"
+version = "3.15.0"
 
 [[ColorTypes]]
 deps = ["FixedPointNumbers", "Random"]
@@ -391,9 +140,9 @@ version = "0.11.0"
 
 [[ColorVectorSpace]]
 deps = ["ColorTypes", "FixedPointNumbers", "LinearAlgebra", "SpecialFunctions", "Statistics", "TensorCore"]
-git-tree-sha1 = "42a9b08d3f2f951c9b283ea427d96ed9f1f30343"
+git-tree-sha1 = "45efb332df2e86f2cb2e992239b6267d97c9e0b6"
 uuid = "c3611d14-8923-5661-9e6a-0046d554d3a4"
-version = "0.9.5"
+version = "0.9.7"
 
 [[Colors]]
 deps = ["ColorTypes", "FixedPointNumbers", "Reexport"]
@@ -409,9 +158,9 @@ version = "0.3.0"
 
 [[Compat]]
 deps = ["Base64", "Dates", "DelimitedFiles", "Distributed", "InteractiveUtils", "LibGit2", "Libdl", "LinearAlgebra", "Markdown", "Mmap", "Pkg", "Printf", "REPL", "Random", "SHA", "Serialization", "SharedArrays", "Sockets", "SparseArrays", "Statistics", "Test", "UUIDs", "Unicode"]
-git-tree-sha1 = "344f143fa0ec67e47917848795ab19c6a455f32c"
+git-tree-sha1 = "31d0151f5716b655421d9d75b7fa74cc4e744df2"
 uuid = "34da2185-b29b-5c13-b0c7-acf172513d20"
-version = "3.32.0"
+version = "3.39.0"
 
 [[CompilerSupportLibraries_jll]]
 deps = ["Artifacts", "Libdl"]
@@ -435,20 +184,20 @@ uuid = "150eb455-5306-5404-9cee-2592286d6298"
 version = "0.6.1"
 
 [[CustomUnitRanges]]
-git-tree-sha1 = "537c988076d001469093945f3bd0b300b8d3a7f3"
+git-tree-sha1 = "1a3f97f907e6dd8983b744d2642651bb162a3f7a"
 uuid = "dc8bdbbb-1ca9-579f-8c36-e416f6a65cce"
-version = "1.0.1"
+version = "1.0.2"
 
 [[DataAPI]]
-git-tree-sha1 = "ee400abb2298bd13bfc3df1c412ed228061a2385"
+git-tree-sha1 = "cc70b17275652eb47bc9e5f81635981f13cea5c8"
 uuid = "9a962f9c-6df0-11e9-0e5d-c546b8b5ee8a"
-version = "1.7.0"
+version = "1.9.0"
 
 [[DataStructures]]
 deps = ["Compat", "InteractiveUtils", "OrderedCollections"]
-git-tree-sha1 = "4437b64df1e0adccc3e5d1adbc3ac741095e4677"
+git-tree-sha1 = "7d9d316f04214f7efdbb6398d545446e246eff02"
 uuid = "864edb3b-99cc-5e75-8d2d-829cb0a9cfe8"
-version = "0.18.9"
+version = "0.18.10"
 
 [[DataValueInterfaces]]
 git-tree-sha1 = "bfc1187b79289637fa0ef6d4436ebdfe6905cbd6"
@@ -471,15 +220,15 @@ version = "1.0.3"
 
 [[DiffRules]]
 deps = ["NaNMath", "Random", "SpecialFunctions"]
-git-tree-sha1 = "85d2d9e2524da988bffaf2a381864e20d2dae08d"
+git-tree-sha1 = "7220bc21c33e990c14f4a9a319b1d242ebc5b269"
 uuid = "b552c78f-8df3-52c6-915a-8e097449b14b"
-version = "1.2.1"
+version = "1.3.1"
 
 [[Distances]]
 deps = ["LinearAlgebra", "Statistics", "StatsAPI"]
-git-tree-sha1 = "abe4ad222b26af3337262b8afb28fab8d215e9f8"
+git-tree-sha1 = "9f46deb4d4ee4494ffb5a40a27a2aced67bdd838"
 uuid = "b4f34e82-e78d-54a5-968a-f98e89d6e8f7"
-version = "0.10.3"
+version = "0.10.4"
 
 [[Distributed]]
 deps = ["Random", "Serialization", "Sockets"]
@@ -493,9 +242,9 @@ version = "0.8.5"
 
 [[Documenter]]
 deps = ["ANSIColoredPrinters", "Base64", "Dates", "DocStringExtensions", "IOCapture", "InteractiveUtils", "JSON", "LibGit2", "Logging", "Markdown", "REPL", "Test", "Unicode"]
-git-tree-sha1 = "350dced36c11f794c6c4da5dc6493ec894e50c16"
+git-tree-sha1 = "8b43e37cfb4f4edc2b6180409acc0cebce7fede8"
 uuid = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
-version = "0.27.5"
+version = "0.27.7"
 
 [[Downloads]]
 deps = ["ArgTools", "LibCURL", "NetworkOptions"]
@@ -503,9 +252,9 @@ uuid = "f43a241f-c20a-4ad4-852c-f6b1247861c6"
 
 [[EarCut_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg"]
-git-tree-sha1 = "92d8f9f208637e8d2d28c664051a00569c01493d"
+git-tree-sha1 = "3f3a2501fa7236e9b911e0f7a588c657e822bb6d"
 uuid = "5ae413db-bbd1-5e63-b57d-d24a61df00f5"
-version = "2.1.5+1"
+version = "2.2.3+0"
 
 [[EllipsisNotation]]
 deps = ["ArrayInterface"]
@@ -526,10 +275,10 @@ uuid = "c87230d0-a227-11e9-1b43-d7ebe4e7570a"
 version = "0.4.1"
 
 [[FFMPEG_jll]]
-deps = ["Artifacts", "Bzip2_jll", "FreeType2_jll", "FriBidi_jll", "JLLWrappers", "LAME_jll", "LibVPX_jll", "Libdl", "Ogg_jll", "OpenSSL_jll", "Opus_jll", "Pkg", "Zlib_jll", "libass_jll", "libfdk_aac_jll", "libvorbis_jll", "x264_jll", "x265_jll"]
-git-tree-sha1 = "3cc57ad0a213808473eafef4845a74766242e05f"
+deps = ["Artifacts", "Bzip2_jll", "FreeType2_jll", "FriBidi_jll", "JLLWrappers", "LAME_jll", "Libdl", "Ogg_jll", "OpenSSL_jll", "Opus_jll", "Pkg", "Zlib_jll", "libass_jll", "libfdk_aac_jll", "libvorbis_jll", "x264_jll", "x265_jll"]
+git-tree-sha1 = "d8a578692e3077ac998b50c0217dfd67f21d1e5f"
 uuid = "b22a6f82-2f65-5046-a5b2-351ab43fb4e5"
-version = "4.3.1+4"
+version = "4.4.0+0"
 
 [[FFTViews]]
 deps = ["CustomUnitRanges", "FFTW"]
@@ -539,21 +288,21 @@ version = "0.3.1"
 
 [[FFTW]]
 deps = ["AbstractFFTs", "FFTW_jll", "LinearAlgebra", "MKL_jll", "Preferences", "Reexport"]
-git-tree-sha1 = "f985af3b9f4e278b1d24434cbb546d6092fca661"
+git-tree-sha1 = "463cb335fa22c4ebacfd1faba5fde14edb80d96c"
 uuid = "7a1cc6ca-52ef-59f5-83cd-3a7055c09341"
-version = "1.4.3"
+version = "1.4.5"
 
 [[FFTW_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg"]
-git-tree-sha1 = "3676abafff7e4ff07bbd2c42b3d8201f31653dcc"
+git-tree-sha1 = "c6033cc3892d0ef5bb9cd29b7f2f0331ea5184ea"
 uuid = "f5851436-0d7a-5f13-b9de-f02708fd171a"
-version = "3.3.9+8"
+version = "3.3.10+0"
 
 [[FileIO]]
 deps = ["Pkg", "Requires", "UUIDs"]
-git-tree-sha1 = "256d8e6188f3f1ebfa1a5d17e072a0efafa8c5bf"
+git-tree-sha1 = "3c041d2ac0a52a12a27af2782b34900d9c3ee68c"
 uuid = "5789e2e9-d7fb-5bc7-8068-2c6fae9b9549"
-version = "1.10.1"
+version = "1.11.1"
 
 [[FixedPointNumbers]]
 deps = ["Statistics"]
@@ -563,9 +312,9 @@ version = "0.8.4"
 
 [[Fontconfig_jll]]
 deps = ["Artifacts", "Bzip2_jll", "Expat_jll", "FreeType2_jll", "JLLWrappers", "Libdl", "Libuuid_jll", "Pkg", "Zlib_jll"]
-git-tree-sha1 = "35895cf184ceaab11fd778b4590144034a167a2f"
+git-tree-sha1 = "21efd19106a55620a188615da6d3d06cd7f6ee03"
 uuid = "a3f928ae-7b40-5064-980b-68af3947d34b"
-version = "2.13.1+14"
+version = "2.13.93+0"
 
 [[Formatting]]
 deps = ["Printf"]
@@ -581,9 +330,9 @@ version = "0.10.19"
 
 [[FreeType2_jll]]
 deps = ["Artifacts", "Bzip2_jll", "JLLWrappers", "Libdl", "Pkg", "Zlib_jll"]
-git-tree-sha1 = "cbd58c9deb1d304f5a245a0b7eb841a2560cfec6"
+git-tree-sha1 = "87eb71354d8ec1a96d4a7636bd57a7347dde3ef9"
 uuid = "d7e528f0-a631-5988-bf34-fe36492bcfd7"
-version = "2.10.1+5"
+version = "2.10.4+0"
 
 [[FriBidi_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg"]
@@ -593,21 +342,21 @@ version = "1.0.10+0"
 
 [[GLFW_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl", "Libglvnd_jll", "Pkg", "Xorg_libXcursor_jll", "Xorg_libXi_jll", "Xorg_libXinerama_jll", "Xorg_libXrandr_jll"]
-git-tree-sha1 = "0c603255764a1fa0b61752d2bec14cfbd18f7fe8"
+git-tree-sha1 = "dba1e8614e98949abfa60480b13653813d8f0157"
 uuid = "0656b61e-2033-5cc2-a64a-77c0f6c09b89"
-version = "3.3.5+1"
+version = "3.3.5+0"
 
 [[GR]]
 deps = ["Base64", "DelimitedFiles", "GR_jll", "HTTP", "JSON", "Libdl", "LinearAlgebra", "Pkg", "Printf", "Random", "Serialization", "Sockets", "Test", "UUIDs"]
-git-tree-sha1 = "182da592436e287758ded5be6e32c406de3a2e47"
+git-tree-sha1 = "c2178cfbc0a5a552e16d097fae508f2024de61a3"
 uuid = "28b8d3ca-fb5f-59d9-8090-bfdbd6d07a71"
-version = "0.58.1"
+version = "0.59.0"
 
 [[GR_jll]]
 deps = ["Artifacts", "Bzip2_jll", "Cairo_jll", "FFMPEG_jll", "Fontconfig_jll", "GLFW_jll", "JLLWrappers", "JpegTurbo_jll", "Libdl", "Libtiff_jll", "Pixman_jll", "Pkg", "Qt5Base_jll", "Zlib_jll", "libpng_jll"]
-git-tree-sha1 = "d59e8320c2747553788e4fc42231489cc602fa50"
+git-tree-sha1 = "ef49a187604f865f4708c90e3f431890724e9012"
 uuid = "d2c73de3-f751-5644-a686-071e5b155ba9"
-version = "0.58.1+0"
+version = "0.59.0+0"
 
 [[GeometryBasics]]
 deps = ["EarCut_jll", "IterTools", "LinearAlgebra", "StaticArrays", "StructArrays", "Tables"]
@@ -629,9 +378,15 @@ version = "2.68.3+0"
 
 [[Graphics]]
 deps = ["Colors", "LinearAlgebra", "NaNMath"]
-git-tree-sha1 = "2c1cf4df419938ece72de17f368a021ee162762e"
+git-tree-sha1 = "1c5a84319923bea76fa145d49e93aa4394c73fc2"
 uuid = "a2bd30eb-e257-5431-a919-1863eab51364"
-version = "1.1.0"
+version = "1.1.1"
+
+[[Graphite2_jll]]
+deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg"]
+git-tree-sha1 = "344bf40dcab1073aca04aa0df4fb092f920e4011"
+uuid = "3b182d85-2403-5c21-9c21-1e1f0cc25472"
+version = "1.3.14+0"
 
 [[Grisu]]
 git-tree-sha1 = "53bb909d1151e57e2484c3d1b53e19552b887fb2"
@@ -640,9 +395,20 @@ version = "1.0.2"
 
 [[HTTP]]
 deps = ["Base64", "Dates", "IniFile", "Logging", "MbedTLS", "NetworkOptions", "Sockets", "URIs"]
-git-tree-sha1 = "44e3b40da000eab4ccb1aecdc4801c040026aeb5"
+git-tree-sha1 = "24675428ca27678f003414a98c9e473e45fe6a21"
 uuid = "cd3eb016-35fb-5094-929b-558a96fad6f3"
-version = "0.9.13"
+version = "0.9.15"
+
+[[HarfBuzz_jll]]
+deps = ["Artifacts", "Cairo_jll", "Fontconfig_jll", "FreeType2_jll", "Glib_jll", "Graphite2_jll", "JLLWrappers", "Libdl", "Libffi_jll", "Pkg"]
+git-tree-sha1 = "8a954fed8ac097d5be04921d595f741115c1b2ad"
+uuid = "2e76f6c2-a576-52d4-95c1-20adfe4de566"
+version = "2.8.1+0"
+
+[[HypertextLiteral]]
+git-tree-sha1 = "72053798e1be56026b81d4e2682dbe58922e5ec9"
+uuid = "ac1192a8-f4b3-4bfe-ba22-af5b92cd3ab2"
+version = "0.9.0"
 
 [[IOCapture]]
 deps = ["Logging", "Random"]
@@ -692,10 +458,10 @@ uuid = "6a3955dd-da59-5b1f-98d4-e7296123deb5"
 version = "0.6.21"
 
 [[ImageIO]]
-deps = ["FileIO", "Netpbm", "PNGFiles", "TiffImages", "UUIDs"]
-git-tree-sha1 = "d067570b4d4870a942b19d9ceacaea4fb39b69a1"
+deps = ["FileIO", "Netpbm", "OpenEXR", "PNGFiles", "TiffImages", "UUIDs"]
+git-tree-sha1 = "13c826abd23931d909e4c5538643d9691f62a617"
 uuid = "82e4d734-157c-48bb-816b-45c225c6df19"
-version = "0.5.6"
+version = "0.5.8"
 
 [[ImageMagick]]
 deps = ["FileIO", "ImageCore", "ImageMagick_jll", "InteractiveUtils", "Libdl", "Pkg", "Random"]
@@ -745,6 +511,12 @@ git-tree-sha1 = "8b714d5e11c91a0d945717430ec20f9251af4bd2"
 uuid = "916415d5-f1e6-5110-898d-aaa5f9f070e0"
 version = "0.24.1"
 
+[[Imath_jll]]
+deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg"]
+git-tree-sha1 = "87f7662e03a649cffa2e05bf19c303e168732d3e"
+uuid = "905a6f67-0a94-5f89-b386-d35d92009cd1"
+version = "3.1.2+0"
+
 [[IndirectArrays]]
 git-tree-sha1 = "c2a145a145dc03a7620af1444e0264ef907bd44f"
 uuid = "9b13fd28-a010-5f03-acff-a1bbcff69959"
@@ -773,15 +545,20 @@ uuid = "b77e0a4c-d291-57a0-90e8-8db25a27a240"
 
 [[Interpolations]]
 deps = ["AxisAlgorithms", "ChainRulesCore", "LinearAlgebra", "OffsetArrays", "Random", "Ratios", "Requires", "SharedArrays", "SparseArrays", "StaticArrays", "WoodburyMatrices"]
-git-tree-sha1 = "1470c80592cf1f0a35566ee5e93c5f8221ebc33a"
+git-tree-sha1 = "61aa005707ea2cebf47c8d780da8dc9bc4e0c512"
 uuid = "a98d9a8b-a2ab-59e6-89dd-64a1c18fca59"
-version = "0.13.3"
+version = "0.13.4"
 
 [[IntervalSets]]
 deps = ["Dates", "EllipsisNotation", "Statistics"]
 git-tree-sha1 = "3cc368af3f110a767ac786560045dceddfc16758"
 uuid = "8197267c-284f-5f27-9208-e0e47529a953"
 version = "0.5.3"
+
+[[IrrationalConstants]]
+git-tree-sha1 = "f76424439413893a832026ca355fe273e93bce94"
+uuid = "92d709cd-6900-40b7-9082-c6be49f344b6"
+version = "0.1.0"
 
 [[IterTools]]
 git-tree-sha1 = "05110a2ab1fc5f932622ffea2a003221f4782c18"
@@ -854,20 +631,14 @@ uuid = "76f85450-5226-5b5a-8eaa-529ad045b433"
 deps = ["Artifacts", "Libdl", "MbedTLS_jll"]
 uuid = "29816b5a-b9ab-546f-933c-edad1886dfa8"
 
-[[LibVPX_jll]]
-deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg"]
-git-tree-sha1 = "12ee7e23fa4d18361e7c2cde8f8337d4c3101bc7"
-uuid = "dd192d2f-8180-539f-9fb4-cc70b1dcf69a"
-version = "1.10.0+0"
-
 [[Libdl]]
 uuid = "8f399da3-3557-5675-b5ff-fb832c97cbdb"
 
 [[Libffi_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg"]
-git-tree-sha1 = "0b4a5d71f3e5200a7dff793393e09dfc2d874290"
+git-tree-sha1 = "761a393aeccd6aa92ec3515e428c26bf99575b3b"
 uuid = "e9f186c6-92d2-5b65-8a66-fee21dc1b490"
-version = "3.2.2+1"
+version = "3.2.2+0"
 
 [[Libgcrypt_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl", "Libgpg_error_jll", "Pkg"]
@@ -916,10 +687,10 @@ deps = ["Libdl"]
 uuid = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 
 [[LogExpFunctions]]
-deps = ["DocStringExtensions", "LinearAlgebra"]
-git-tree-sha1 = "7bd5f6565d80b6bf753738d2bc40a5dfea072070"
+deps = ["ChainRulesCore", "DocStringExtensions", "IrrationalConstants", "LinearAlgebra"]
+git-tree-sha1 = "34dc30f868e368f8a17b728a1238f3fcda43931a"
 uuid = "2ab3a3ac-af41-5b50-aa03-7779005ae688"
-version = "0.2.5"
+version = "0.3.3"
 
 [[Logging]]
 uuid = "56ddb016-857b-54e1-b83d-db4d58db5568"
@@ -932,14 +703,14 @@ version = "2021.1.1+2"
 
 [[MacroTools]]
 deps = ["Markdown", "Random"]
-git-tree-sha1 = "0fb723cd8c45858c22169b2e42269e53271a6df7"
+git-tree-sha1 = "5a5bc6bf062f0f95e62d0fe0a2d99699fed82dd9"
 uuid = "1914dd2f-81c6-5fcd-8719-6d5c9610ff09"
-version = "0.5.7"
+version = "0.5.8"
 
 [[MappedArrays]]
-git-tree-sha1 = "18d3584eebc861e311a552cbb67723af8edff5de"
+git-tree-sha1 = "e8b359ef06ec72e8c030463fe02efe5527ee5142"
 uuid = "dbb5928d-eab1-5f90-85c2-b9b0edb7c900"
-version = "0.4.0"
+version = "0.4.1"
 
 [[Markdown]]
 deps = ["Base64"]
@@ -962,9 +733,9 @@ version = "0.3.1"
 
 [[Missings]]
 deps = ["DataAPI"]
-git-tree-sha1 = "4ea90bd5d3985ae1f9a908bd4500ae88921c5ce7"
+git-tree-sha1 = "bf210ce90b6c9eed32d25dbcae1ebc565df2687f"
 uuid = "e1d29d7a-bbdc-5cf2-9ac0-f12de2c33e28"
-version = "1.0.0"
+version = "1.0.2"
 
 [[Mmap]]
 uuid = "a63ad114-7e13-5084-954f-fe012c677804"
@@ -994,15 +765,31 @@ uuid = "ca575930-c2e3-43a9-ace4-1e988b2c1908"
 
 [[OffsetArrays]]
 deps = ["Adapt"]
-git-tree-sha1 = "5cc97a6f806ba1b36bac7078b866d4297ae8c463"
+git-tree-sha1 = "c0e9e582987d36d5a61e650e6e543b9e44d9914b"
 uuid = "6fe1bfb0-de20-5000-8ca7-80f57d26f881"
-version = "1.10.4"
+version = "1.10.7"
 
 [[Ogg_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg"]
 git-tree-sha1 = "7937eda4681660b4d6aeeecc2f7e1c81c8ee4e2f"
 uuid = "e7412a2a-1a6e-54c0-be00-318e2571c051"
 version = "1.3.5+0"
+
+[[OpenEXR]]
+deps = ["Colors", "FileIO", "OpenEXR_jll"]
+git-tree-sha1 = "327f53360fdb54df7ecd01e96ef1983536d1e633"
+uuid = "52e1d378-f018-4a11-a4be-720524705ac7"
+version = "0.3.2"
+
+[[OpenEXR_jll]]
+deps = ["Artifacts", "Imath_jll", "JLLWrappers", "Libdl", "Pkg", "Zlib_jll"]
+git-tree-sha1 = "923319661e9a22712f24596ce81c54fc0366f304"
+uuid = "18a262bb-aa17-5467-a713-aee519bc75cb"
+version = "3.1.1+0"
+
+[[OpenLibm_jll]]
+deps = ["Artifacts", "Libdl"]
+uuid = "05823500-19ac-5b8b-9628-191a04bc5112"
 
 [[OpenSSL_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg"]
@@ -1035,27 +822,27 @@ version = "8.44.0+0"
 
 [[PNGFiles]]
 deps = ["Base64", "CEnum", "ImageCore", "IndirectArrays", "OffsetArrays", "libpng_jll"]
-git-tree-sha1 = "520e28d4026d16dcf7b8c8140a3041f0e20a9ca8"
+git-tree-sha1 = "e14c485f6beee0c7a8dcf6128bf70b85f1fe201e"
 uuid = "f57f5aa1-a3ce-4bc8-8ab9-96f992907883"
-version = "0.3.7"
+version = "0.3.9"
 
 [[PaddedViews]]
 deps = ["OffsetArrays"]
-git-tree-sha1 = "59925f4ae6861cddc2313a47514b93b6740f9b6f"
+git-tree-sha1 = "646eed6f6a5d8df6708f15ea7e02a7a2c4fe4800"
 uuid = "5432bcbf-9aad-5242-b902-cca2824c8663"
-version = "0.5.9"
+version = "0.5.10"
 
 [[Parameters]]
 deps = ["OrderedCollections", "UnPack"]
-git-tree-sha1 = "2276ac65f1e236e0a6ea70baff3f62ad4c625345"
+git-tree-sha1 = "34c0e9ad262e5f7fc75b10a9952ca7692cfc5fbe"
 uuid = "d96e819e-fc66-5662-9728-84c9c7592b0a"
-version = "0.12.2"
+version = "0.12.3"
 
 [[Parsers]]
 deps = ["Dates"]
-git-tree-sha1 = "477bf42b4d1496b454c10cce46645bb5b8a0cf2c"
+git-tree-sha1 = "9d8c00ef7a8d110787ff6f170579846f776133a9"
 uuid = "69de0a69-1ddd-5017-9359-2bf0b02dc9f0"
-version = "2.0.2"
+version = "2.0.4"
 
 [[Pixman_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg"]
@@ -1081,21 +868,21 @@ version = "2.0.1"
 
 [[PlotUtils]]
 deps = ["ColorSchemes", "Colors", "Dates", "Printf", "Random", "Reexport", "Statistics"]
-git-tree-sha1 = "501c20a63a34ac1d015d5304da0e645f42d91c9f"
+git-tree-sha1 = "2537ed3c0ed5e03896927187f5f2ee6a4ab342db"
 uuid = "995b91a9-d308-5afd-9ec6-746e21dbc043"
-version = "1.0.11"
+version = "1.0.14"
 
 [[Plots]]
-deps = ["Base64", "Contour", "Dates", "FFMPEG", "FixedPointNumbers", "GR", "GeometryBasics", "JSON", "Latexify", "LinearAlgebra", "Measures", "NaNMath", "PlotThemes", "PlotUtils", "Printf", "REPL", "Random", "RecipesBase", "RecipesPipeline", "Reexport", "Requires", "Scratch", "Showoff", "SparseArrays", "Statistics", "StatsBase", "UUIDs"]
-git-tree-sha1 = "e39bea10478c6aff5495ab522517fae5134b40e3"
+deps = ["Base64", "Contour", "Dates", "Downloads", "FFMPEG", "FixedPointNumbers", "GR", "GeometryBasics", "JSON", "Latexify", "LinearAlgebra", "Measures", "NaNMath", "PlotThemes", "PlotUtils", "Printf", "REPL", "Random", "RecipesBase", "RecipesPipeline", "Reexport", "Requires", "Scratch", "Showoff", "SparseArrays", "Statistics", "StatsBase", "UUIDs"]
+git-tree-sha1 = "cfbd033def161db9494f86c5d18fbf874e09e514"
 uuid = "91a5bcdd-55d7-5caf-9e0b-520d859cae80"
-version = "1.20.0"
+version = "1.22.3"
 
 [[PlutoUI]]
-deps = ["Base64", "Dates", "InteractiveUtils", "JSON", "Logging", "Markdown", "Random", "Reexport", "Suppressor"]
-git-tree-sha1 = "44e225d5837e2a2345e69a1d1e01ac2443ff9fcb"
+deps = ["Base64", "Dates", "HypertextLiteral", "IOCapture", "InteractiveUtils", "JSON", "Logging", "Markdown", "Random", "Reexport", "UUIDs"]
+git-tree-sha1 = "f35ae11e070dbf123d5a6f54cbda45818d765ad2"
 uuid = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
-version = "0.7.9"
+version = "0.7.12"
 
 [[Preferences]]
 deps = ["TOML"]
@@ -1133,25 +920,26 @@ uuid = "b3c3ace0-ae52-54e7-9d0b-2c1406fd6b9d"
 version = "0.3.2"
 
 [[Ratios]]
-git-tree-sha1 = "37d210f612d70f3f7d57d488cb3b6eff56ad4e41"
+deps = ["Requires"]
+git-tree-sha1 = "01d341f502250e81f6fec0afe662aa861392a3aa"
 uuid = "c84ed2f1-dad5-54f0-aa8e-dbefe2724439"
-version = "0.4.0"
+version = "0.4.2"
 
 [[RecipesBase]]
-git-tree-sha1 = "b3fb709f3c97bfc6e948be68beeecb55a0b340ae"
+git-tree-sha1 = "44a75aa7a527910ee3d1751d1f0e4148698add9e"
 uuid = "3cdcf5f2-1ef4-517c-9805-6587b60abb01"
-version = "1.1.1"
+version = "1.1.2"
 
 [[RecipesPipeline]]
 deps = ["Dates", "NaNMath", "PlotUtils", "RecipesBase"]
-git-tree-sha1 = "2a7a2469ed5d94a98dea0e85c46fa653d76be0cd"
+git-tree-sha1 = "7ad0dfa8d03b7bcf8c597f59f5292801730c55b8"
 uuid = "01d81517-befc-4cb6-b9ec-a95719d0359c"
-version = "0.3.4"
+version = "0.4.1"
 
 [[Reexport]]
-git-tree-sha1 = "5f6c21241f0f655da3952fd60aa18477cf96c220"
+git-tree-sha1 = "45e428421666073eab6f2da5c9d310d99bb12f9b"
 uuid = "189a3867-3050-52da-a836-e630ba90ab69"
-version = "1.1.0"
+version = "1.2.2"
 
 [[Requires]]
 deps = ["UUIDs"]
@@ -1207,10 +995,10 @@ deps = ["LinearAlgebra", "Random"]
 uuid = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
 
 [[SpecialFunctions]]
-deps = ["ChainRulesCore", "LogExpFunctions", "OpenSpecFun_jll"]
-git-tree-sha1 = "508822dca004bf62e210609148511ad03ce8f1d8"
+deps = ["ChainRulesCore", "IrrationalConstants", "LogExpFunctions", "OpenLibm_jll", "OpenSpecFun_jll"]
+git-tree-sha1 = "793793f1df98e3d7d554b65a107e9c9a6399a6ed"
 uuid = "276daf66-3868-5448-9aa4-cd146d93841b"
-version = "1.6.0"
+version = "1.7.0"
 
 [[StackViews]]
 deps = ["OffsetArrays"]
@@ -1220,15 +1008,15 @@ version = "0.1.1"
 
 [[Static]]
 deps = ["IfElse"]
-git-tree-sha1 = "62701892d172a2fa41a1f829f66d2b0db94a9a63"
+git-tree-sha1 = "a8f30abc7c64a39d389680b74e749cf33f872a70"
 uuid = "aedffcd0-7271-4cad-89d0-dc628f76c6d3"
-version = "0.3.0"
+version = "0.3.3"
 
 [[StaticArrays]]
 deps = ["LinearAlgebra", "Random", "Statistics"]
-git-tree-sha1 = "b28f39450421d07d89ab5d126fd15e5246350e8a"
+git-tree-sha1 = "3240808c6d463ac46f1c1cd7638375cd22abbccb"
 uuid = "90137ffa-7385-5640-81b9-e52037218182"
-version = "1.2.11"
+version = "1.2.12"
 
 [[Statistics]]
 deps = ["LinearAlgebra", "SparseArrays"]
@@ -1241,20 +1029,15 @@ version = "1.0.0"
 
 [[StatsBase]]
 deps = ["DataAPI", "DataStructures", "LinearAlgebra", "Missings", "Printf", "Random", "SortingAlgorithms", "SparseArrays", "Statistics", "StatsAPI"]
-git-tree-sha1 = "fed1ec1e65749c4d96fc20dd13bea72b55457e62"
+git-tree-sha1 = "8cbbc098554648c84f79a463c9ff0fd277144b6c"
 uuid = "2913bbd2-ae8a-5f71-8c99-4fb6c76f3a91"
-version = "0.33.9"
+version = "0.33.10"
 
 [[StructArrays]]
 deps = ["Adapt", "DataAPI", "StaticArrays", "Tables"]
-git-tree-sha1 = "000e168f5cc9aded17b6999a560b7c11dda69095"
+git-tree-sha1 = "2ce41e0d042c60ecd131e9fb7154a3bfadbf50d3"
 uuid = "09ab397b-f2b6-538f-b94a-2f83cf4a842a"
-version = "0.6.0"
-
-[[Suppressor]]
-git-tree-sha1 = "a819d77f31f83e5792a76081eee1ea6342ab8787"
-uuid = "fd094767-a336-5f1f-9728-57cf17d0bbfb"
-version = "0.2.0"
+version = "0.6.3"
 
 [[TOML]]
 deps = ["Dates"]
@@ -1268,9 +1051,9 @@ version = "1.0.1"
 
 [[Tables]]
 deps = ["DataAPI", "DataValueInterfaces", "IteratorInterfaceExtensions", "LinearAlgebra", "TableTraits", "Test"]
-git-tree-sha1 = "d0c690d37c73aeb5ca063056283fde5585a41710"
+git-tree-sha1 = "1162ce4a6c4b7e31e0e6b14486a6986951c73be9"
 uuid = "bd369af6-aec1-5ad0-b16a-f7cc5008161c"
-version = "1.5.0"
+version = "1.5.2"
 
 [[Tar]]
 deps = ["ArgTools", "SHA"]
@@ -1288,15 +1071,15 @@ uuid = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
 [[TiffImages]]
 deps = ["ColorTypes", "DocStringExtensions", "FileIO", "FixedPointNumbers", "IndirectArrays", "Inflate", "OffsetArrays", "OrderedCollections", "PkgVersion", "ProgressMeter"]
-git-tree-sha1 = "03fb246ac6e6b7cb7abac3b3302447d55b43270e"
+git-tree-sha1 = "632a8d4dbbad6627a4d2d21b1c6ebcaeebb1e1ed"
 uuid = "731e570b-9d59-4bfa-96dc-6df516fadf69"
-version = "0.4.1"
+version = "0.4.2"
 
 [[TiledIteration]]
 deps = ["OffsetArrays"]
-git-tree-sha1 = "52c5f816857bfb3291c7d25420b1f4aca0a74d18"
+git-tree-sha1 = "5683455224ba92ef59db72d10690690f4a8dc297"
 uuid = "06e1c1a7-607b-532d-9fad-de7d9aa2abac"
-version = "0.3.0"
+version = "0.3.1"
 
 [[URIs]]
 git-tree-sha1 = "97bbe755a53fe859669cd907f2d96aee8d2c1355"
@@ -1488,16 +1271,16 @@ uuid = "3161d3a3-bdf6-5164-811a-617609db77b4"
 version = "1.5.0+0"
 
 [[libass_jll]]
-deps = ["Artifacts", "Bzip2_jll", "FreeType2_jll", "FriBidi_jll", "JLLWrappers", "Libdl", "Pkg", "Zlib_jll"]
-git-tree-sha1 = "acc685bcf777b2202a904cdcb49ad34c2fa1880c"
+deps = ["Artifacts", "Bzip2_jll", "FreeType2_jll", "FriBidi_jll", "HarfBuzz_jll", "JLLWrappers", "Libdl", "Pkg", "Zlib_jll"]
+git-tree-sha1 = "5982a94fcba20f02f42ace44b9894ee2b140fe47"
 uuid = "0ac62f75-1d6f-5e53-bd7c-93b484bb37c0"
-version = "0.14.0+4"
+version = "0.15.1+0"
 
 [[libfdk_aac_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg"]
-git-tree-sha1 = "7a5780a0d9c6864184b3a2eeeb833a0c871f00ab"
+git-tree-sha1 = "daacc84a041563f965be61859a36e17c4e4fcd55"
 uuid = "f638f0a6-7fb0-5443-88ba-1cc74229b280"
-version = "0.1.6+4"
+version = "2.0.2+0"
 
 [[libpng_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg", "Zlib_jll"]
@@ -1521,15 +1304,15 @@ uuid = "3f19e933-33d8-53b3-aaab-bd5110c3b7a0"
 
 [[x264_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg"]
-git-tree-sha1 = "d713c1ce4deac133e3334ee12f4adff07f81778f"
+git-tree-sha1 = "4fea590b89e6ec504593146bf8b988b2c00922b2"
 uuid = "1270edf5-f2f9-52d2-97e9-ab00b5d0237a"
-version = "2020.7.14+2"
+version = "2021.5.5+0"
 
 [[x265_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg"]
-git-tree-sha1 = "487da2f8f2f0c8ee0e83f39d13037d6bbf0a45ab"
+git-tree-sha1 = "ee567a171cce03570d77ad3a43e90218e38937a9"
 uuid = "dfaa095f-4041-5dcd-9319-2fabd8486b76"
-version = "3.0.0+3"
+version = "3.5.0+0"
 
 [[xkbcommon_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg", "Wayland_jll", "Wayland_protocols_jll", "Xorg_libxcb_jll", "Xorg_xkeyboard_config_jll"]
@@ -1539,36 +1322,8 @@ version = "0.9.1+5"
 """
 
 # ╔═╡ Cell order:
-# ╠═c028100e-f47b-11eb-2547-df779889e265
-# ╠═b0c8df66-1e63-456e-be32-d469e6972e00
-# ╟─e9384124-9708-44eb-b5e7-75abc5177a69
-# ╟─c8293b7b-0585-45b3-8763-8cfa4671b155
-# ╠═a48ac92c-5cb0-4e51-a08f-b34bc8b06d04
-# ╟─ad96bcbe-4482-4486-b817-e788604d1d96
-# ╟─47eb9e3f-5617-417a-8924-5a38d90390e8
-# ╟─8752bf4d-50e6-42ea-8d43-c41699769f77
-# ╠═71c9bc8f-921d-4df4-acc2-7321ce6648e0
-# ╟─d830e69e-f085-495e-be2c-8ea44582fa20
-# ╠═c2b7a082-c05d-41bb-af4c-eb23f6a331bf
-# ╟─ea51f472-7ffc-4062-a45c-1410d26b1c3e
-# ╟─454f7849-2d9b-4250-94bb-9aed4c2f0d54
-# ╠═67f29fd6-11ed-415f-abc0-2ed3c84fe60f
-# ╟─db1ed38c-a1aa-4173-bb43-d81afedbfab9
-# ╟─bfc73784-8c27-4cdb-a8e4-fbcbf9ddb3c2
-# ╟─76dc572f-3cd2-4f1a-9296-2065c877a6ef
-# ╠═839db88c-a477-4718-88bb-796ab0cd6591
-# ╟─f33b9315-b2d1-4fab-91c9-ed3b63fb4d41
-# ╠═11702be3-d125-4ea4-b7e9-74d34943a164
-# ╠═0c504e4f-be2c-4612-9656-bc7922c8f737
-# ╟─d844c02d-41c8-43a8-95dd-742ea6c24f86
-# ╠═e618b2d9-abe8-4e97-aab2-e87c6278378f
-# ╟─7329a0ba-c57c-4d77-99da-2f8f66d5a94e
-# ╠═845cbd96-c01b-49f7-94df-15836a68ebba
-# ╟─d5c82801-8387-4ef0-9f34-3279a54603c5
-# ╠═a5c9b186-332f-4812-bb07-0bbe288f5091
-# ╟─85c555bb-f584-4064-9da7-f7f1e4fd5320
-# ╠═c4c3fa5c-79bc-4d55-827f-c952b129ab5f
-# ╠═9fc14582-108f-4434-83da-f7b32b676bd3
-# ╟─9c67282b-e26a-42bf-836e-fc464b8ca63d
+# ╠═8e7c4c7e-212a-11ec-0da9-e37fb98edfac
+# ╠═dbd62314-b182-41dc-ae2c-3b0a6e5c7d6e
+# ╠═a46dcf84-73f4-40d9-91e9-fc6b9b199a47
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002

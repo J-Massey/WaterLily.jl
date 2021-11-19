@@ -1,6 +1,7 @@
 using WaterLily
 using LinearAlgebra: norm2
-include("ThreeD_Plots.jl")
+# include("ThreeD_Plots.jl")
+
 
 function donut(p=6,Re=1e3)
     # Define simulation size, geometry dimensions, viscosity
